@@ -10,9 +10,8 @@ function [out] = DiscreteGLM_cohort(in)
 %     in.Y_valid - labels of validation data
 %     in.GLM_function - type of GLM function
 %     in.eps1 - regularisation constants (l1 constraint ||P||_1 <= C)
-%     in.risk - risk level (bound constraints risk <= r <= 1-risk)
+%     in.risk - risk level (= solution r)
 %     in.P_init - initial approximation of unknown P
-%     in.r_init - initial approximation of unknown r
 %     in.P_zerotol - tolerance for computing out.N_par
 %     in.alg_anneal - number of used annealing steps
 %     in.alg_maxit - maximum number of iterations of used optimization algorithm
@@ -50,9 +49,8 @@ end
 if ~isfield(in,'alg_print')
     in.alg_print = true;
 end
-if ~isfield(in,'P_init') || ~isfield(in,'r_init')
+if ~isfield(in,'P_init')
     in.P_init = [];
-    in.r_init = [];
 end
 if ~isfield(in,'risk')
     in.risk = 1e-2;
@@ -65,9 +63,13 @@ Y_valid=in.Y_valid;
 X_valid=in.X_valid;
 GLM_function=in.GLM_function;
 eps1=in.eps1;
-risk=in.risk;
 P_init=in.P_init;
-r_init=in.r_init;
+
+% risk to r (= fixed,given)
+r=zeros(numel(in.risk),1);
+for i=1:numel(in.risk)
+    r(i) = in.risk{i}; % TODO: in Matlab, there is functions for cell->vec
+end
 
 %% SET ADDITIONAL VARIABLES
 N_cohorts=numel(Y);
@@ -76,13 +78,9 @@ N_cohorts=numel(Y);
 % and find maximum and minimum risk level for each cohort
 TT_full=0;
 TT_full_valid=0;
-min_risk=cell(1,N_cohorts);
-max_risk=cell(1,N_cohorts);
 for n=1:N_cohorts
     TT_full=TT_full+size(Y{n},1);
     TT_full_valid=TT_full_valid+size(Y_valid{n},1);
-    min_risk{n}=min(risk{n});
-    max_risk{n}=max(risk{n});
 end
 
 %% PREPARE OPTIMIZATION ALGORITHM
@@ -92,7 +90,7 @@ options=optimset(... %'UseParallel','always',...
     );
 
 % prepare objects of constraints
-[A,b,Aeq,beq,lb,ub] = fmincon_constraint(N_X, N_cohorts, eps1, risk);
+[A,b,Aeq,beq,lb,ub] = fmincon_constraint(N_X, eps1);
 
 %% RUN MAIN CYCLE - ANNEALING
 for n_anneal=1:in.alg_anneal
@@ -103,24 +101,17 @@ for n_anneal=1:in.alg_anneal
         P_init = randn(1,N_X);
     end
     
-    % set initial approximation of r
-    if or(n_anneal>1,isempty(r_init))
-        % if initial approximation is not provided or we are computing new
-        % annealing step, then we generate random initial values
-        r_init = cell2mat(max_risk);
-    end
-    
     % from initial approximations compose initial approximation for fmincon
-    x0 = fmincon_x0(P_init,r_init);
+    x0 = fmincon_x0(P_init);
     
     % run the optimization algorithm
     [x,fff,~,output] =  fmincon(...
-        @(x)fmincon_fx(x,X,Y,N_X,GLM_function,N_cohorts),...
+        @(x)fmincon_fx(x,r,X,Y,N_X,GLM_function),...
         x0,...
         full(A),(b),Aeq,beq,lb,ub,[],options);
     
-    % get P,r from fmincon solution
-    [P, r] = fmincon_strip(x, N_X);
+    % get P from fmincon solution
+    P = fmincon_strip(x, N_X);
     
     % print final info about optimization procedure
     if in.alg_print
@@ -131,13 +122,11 @@ for n_anneal=1:in.alg_anneal
         % this is first annealing step, it has to be the best (for now)
         Lfin=fff;
         Pfin=P;
-        rfin=r;
     else
         % if this annealing step is better than previous then replace old values
         if Lfin>fff
             Lfin=fff;
             Pfin=P;
-            rfin=r;
         end
     end
 end
@@ -145,7 +134,7 @@ end
 %% SET OUTPUT VARIABLES
 % set output solution from the best annealing step
 out.P=Pfin;
-out.r=rfin;
+out.r=r;
 out.LogL=-Lfin*(TT_full);
 
 % compute number of non-zero parameters P
@@ -160,67 +149,57 @@ if ~isfield(in,'X_valid') || ~isfield(in,'Y_valid')
     % without validation - not enought provided variables
     out.LogL_valid=NaN;
 else
-    out.LogL_valid=LogLik_GLM_latent_cohort(Pfin,rfin,X_valid,Y_valid,GLM_function);
+    out.LogL_valid=LogLik_GLM_latent_cohort(out.P,out.r,X_valid,Y_valid,GLM_function);
 end
 
 end
 
 
-function [fx,dfx] = fmincon_fx(x,X,Y,N_X,GLM_function,N_cohorts)
+function [fx,dfx] = fmincon_fx(x,r,X,Y,N_X,GLM_function)
 % define objective function for fmincon algorithm
 
 % initialize gradient
 dfx = zeros(size(x));
 
-% P = x(1:N_X)
-% r = x(2*N_X:2*N_X+N_cohorts-1);
-[fx,dfx(1:N_X),dfx(2*N_X:end)] = LogLik_GLM_latent_cohort(...
-    x(1:N_X),x(2*N_X:2*N_X+N_cohorts-1),X,Y,GLM_function);
+P = fmincon_strip(x, N_X);
+[fx,dfx(1:N_X),~] = LogLik_GLM_latent_cohort(...
+    P,r,X,Y,GLM_function);
 
 end
 
-function [x0] = fmincon_x0(P0,r0)
+function [x0] = fmincon_x0(P0)
 % compose initial approximation for fmincon algorithm
-if ~isempty(P0) && ~isempty(r0)
-    x0=[P0,abs(P0(2:end)),r0];
+if ~isempty(P0)
+    x0=[P0,abs(P0(2:end))];
 else
     x0 = [];
 end
 end
 
-function [P, r] = fmincon_strip(x, N_X)
-% extract P,r from solution of fmincon
-% P = x(1:N_X)
-% r = x(2*N_X:2*N_X+N_cohorts-1);
-
+function [P] = fmincon_strip(x, N_X)
+% extract P from solution of fmincon
 P = x(1:N_X);
-r = x(2*N_X:end);
 end
 
-function [A,b,Aeq,beq,lb,ub] = fmincon_constraint(N_X, N_cohorts, eps1, risk)
+function [A,b,Aeq,beq,lb,ub] = fmincon_constraint(N_X, eps1)
 % prepare constraints for fmincon algorithm
 
-n_x=N_X*2-1+N_cohorts;
+n_x=N_X*2-1;
 
 %%% Inequality constraints matrices
 e=ones(N_X-1,1);
 A1=[spdiags(e,1,N_X-1,N_X), -spdiags(e,0,N_X-1,n_x-N_X)];
 A2=[-spdiags(e,1,N_X-1,N_X), -spdiags(e,0,N_X-1,n_x-N_X)];
-A3=[zeros(N_X-1,N_X), -spdiags(e,0,N_X-1,n_x-N_X)];
-A=[A1;A2;A3;zeros(1,N_X) ones(1,N_X-1) zeros(1,N_cohorts)];
+A=[A1;A2;zeros(1,N_X) ones(1,N_X-1)];
 
-b=[zeros(3*(N_X-1),1);eps1];
+b=[zeros(2*(N_X-1),1);eps1];
 
 %%% Equality constraints matrices
 Aeq=[];beq=[];
 
 %%% bound constraints
-lb = -Inf*ones(1,n_x);
-ub = Inf*ones(1,n_x);
-for n=1:N_cohorts
-    lb(N_X*2-1+n) = risk{n};
-    ub(N_X*2-1+n) = 1-risk{n};
-end
+lb = [-Inf*ones(N_X,1);ones(N_X-1,1)]; % xi is bounded from below
+ub = [];
 
 end
 

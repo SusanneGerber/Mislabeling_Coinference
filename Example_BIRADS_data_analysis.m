@@ -48,7 +48,7 @@ alg_maxit = 500;
 alg_tol = 1e-10;
 
 % set number of parallel workers
-runparallel = true; % run in parallel or not
+runparallel = false; % run in parallel or not
 numWorkers = 8; % set number of workers
 %numWorkers = 12;
 
@@ -226,18 +226,17 @@ for idx_bootstrap = 1:N_bootstrap
             % reuse solution from "previous" constrain for initial
             % approximation
             in_largest_risk.P_init = out_largest_risk{idx_C-1}.P;
-            in_largest_risk.r_init = out_largest_risk{idx_C-1}.r;
         else
             % the problem has not been computed yet, there is nothing to
             % reuse as initial approximation
             in_largest_risk.P_init = [];
-            in_largest_risk.r_init = [];
         end
         in_largest_risk.Y = Y_train;  
         in_largest_risk.X = X_train;
         in_largest_risk.eps1 = C(idx_C); % this particular constraint value
-        in_largest_risk.risk = risk;
-        in_largest_risk.risk{2} = risk{2}(length(risk{2}));
+        for idx_cohort = 1:N_cohorts
+            in_largest_risk.risk{idx_cohort} = max(risk{idx_cohort});
+        end
         in_largest_risk.Y_valid = Y_valid;
         in_largest_risk.X_valid = X_valid;
         
@@ -299,7 +298,6 @@ for idx_bootstrap = 1:N_bootstrap
             % reuse solution from previous computation with largest risk
             % value as initial approximation
             in{idx_thread}.P_init = out_largest_risk{idx_C}.P;
-            in{idx_thread}.r_init = out_largest_risk{idx_C}.r;
         end
         
         % data for parallel threads are prepared, run parallel computation
