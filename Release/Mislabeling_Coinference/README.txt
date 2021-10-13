@@ -5,9 +5,7 @@ Coinference of mislabeling risks and GLM-parameters
 
 1. Introduction
 ================
-Mislabeling_Coinference is a Matlab-based software package for a simultaneous inference of generalised linear model parameters (implemented is logit-function) and of the category-specific mislabeling risks. The methodology is described in the following paper:
-
-S. Gerber, L Pospisil, Ch. Hewel, M. Rueda, A. Hassanali and I. Horenko, "Co-inference of data mislabelings reveals improved models in breast cancer diagnostics and genomics"
+Mislabeling_Coinference is a Matlab-based software package for a simultaneous inference of generalised linear model parameters (implemented is logit-function) and of the category-specific mislabeling risks. 
 
 Mislabeling_Coinference is an open-sourced parallel Matlab-toolbox (under the General Public Licence), can be easily 
 extended or tailored for specific tasks, and scaled up for large data sets.
