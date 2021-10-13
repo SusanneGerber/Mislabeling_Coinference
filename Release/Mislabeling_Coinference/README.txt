@@ -1,6 +1,6 @@
 ==================================================================
 Coinference of mislabeling risks and GLM-parameters
-(C) 2018 Susanne Gerber and Illia Horenko 
+(C) 2021 Susanne Gerber and Illia Horenko 
 ==================================================================
 
 1. Introduction
